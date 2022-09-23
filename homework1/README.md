@@ -3,5 +3,5 @@
 * Internet ID: pan00079
 
 ## Website and Description
-* This [website Link](https://sites.google.com/umn.edu/csci-5611-julia-pan/homework-1-check-in) contains all images, videos, and descriptions for these exercises.
+* This [website link](https://sites.google.com/umn.edu/csci-5611-julia-pan/homework-1-check-in) contains all images, videos, and descriptions for these exercises.
 * To visit the website, you **have to** login with your UMN account.  
