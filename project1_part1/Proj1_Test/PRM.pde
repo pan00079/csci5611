@@ -39,7 +39,8 @@
 
 
 // global variables
-static float distanceLimit = 200;
+// 
+static float distanceLimit = 500;
 
 //Here, we represent our graph structure as a neighbor list \
 //You can use any graph representation you like
@@ -47,6 +48,7 @@ ArrayList<Integer>[] neighbors = new ArrayList[maxNumNodes];  //A list of neighb
 //We also want some help arrays to keep track of some information about nodes we've visited
 Boolean[] visited = new Boolean[maxNumNodes]; //A list which store if a given node has been visited
 int[] parent = new int[maxNumNodes]; //A list which stores the best previous node on the optimal path to reach this node
+float[] distances = new float[maxNumNodes]; //A list which stores shortest distance from start to this node
 
 //Set which nodes are connected to which neighbors (graph edges) based on PRM rules
 void connectNeighbors(Vec2[] centers, float[] radii, int numObstacles, Vec2[] nodePos, int numNodes) {
@@ -65,47 +67,21 @@ void connectNeighbors(Vec2[] centers, float[] radii, int numObstacles, Vec2[] no
   }
 }
 
-//This is probably a bad idea and you shouldn't use it...
-int closestNode(Vec2 point, Vec2[] nodePos, int numNodes) {
-  int closestID = -1;
-  float minDist = 999999;
-  for (int i = 0; i < numNodes; i++) {
-    float dist = nodePos[i].distanceTo(point);
-    if (dist < minDist) {
-      closestID = i;
-      minDist = dist;
-    }
-  }
-  return closestID;
-}
-
-ArrayList<Integer> findStartNeighbors(Vec2[] centers, float[] radii, int numObstacles, Vec2[] nodePos, int numNodes, Vec2 startPos) {
-  ArrayList<Integer> startArr = new ArrayList<Integer>();
-    for (int i = 0; i < numNodes; i++) {
-      Vec2 dir = nodePos[i].minus(startPos).normalized();
-      float distBetween = nodePos[i].distanceTo(startPos);
-      if (distBetween > distanceLimit) continue; // don't connect if it's too far away
-      hitInfo circleListCheck = rayCircleListIntersect(centers, radii, numObstacles, nodePos[i], dir, distBetween);
-      if (!circleListCheck.hit) {
-        startArr.add(i);
-      }
-  }
-  return startArr;
-}
-
 ArrayList<Integer> planPath(Vec2 startPos, Vec2 goalPos, Vec2[] centers, float[] radii, int numObstacles, Vec2[] nodePos, int numNodes) {
   ArrayList<Integer> path = new ArrayList();
-
-  // int startID = closestNode(startPos, nodePos, numNodes);
-  int goalID = closestNode(goalPos, nodePos, numNodes);
   
-  ArrayList<Integer> startArr = findStartNeighbors(centers, radii, numObstacles, nodePos, numNodes, startPos);
-
-  path = runBFS(nodePos, numNodes, startArr, goalID);
+  // Checking if there are any obstacles between start and goal
+  Vec2 dir = goalPos.minus(startPos).normalized();
+  float distBetween = startPos.distanceTo(goalPos);
+  hitInfo circleListCheck = rayCircleListIntersect(centers, radii, numObstacles, startPos, dir, distBetween);
+  
+  // if there is, run the UCS algorithm, otherwise, simply return the direct path between the two
+  if (circleListCheck.hit) path = runUCS(nodePos, numNodes, startPos, goalPos, centers, radii, numObstacles);
 
   return path;
 }
 
+// Helper function for UCS to check which node has the lowest cost/distance associated with it
 int findMinDistNode(ArrayList<Integer> fringe) {
   int minDistID = -1;
   float minDist = MAX_FLOAT;
@@ -119,12 +95,11 @@ int findMinDistNode(ArrayList<Integer> fringe) {
   return minDistID;
 }
 
-float[] distances = new float[maxNumNodes];
 
-//BFS (Breadth First Search)
-ArrayList<Integer> runBFS(Vec2[] nodePos, int numNodes, ArrayList<Integer> startArr, int goalID) {
+// UCS/Dijkstra's Algorithm to find (hopefully) the shortest path on the graph
+ArrayList<Integer> runUCS(Vec2[] nodePos, int numNodes, Vec2 startPos, Vec2 goalPos, Vec2[] centers, float[] radii, int numObstacles) {
   ArrayList<Integer> fringe = new ArrayList();  //New empty fringe
-  ArrayList<Integer> path = new ArrayList();
+  ArrayList<Integer> path = new ArrayList(); //Path
   for (int i = 0; i < numNodes; i++) { //Clear visit tags and parent pointers
     visited[i] = false;
     parent[i] = -1; //No parent yet
@@ -133,25 +108,58 @@ ArrayList<Integer> runBFS(Vec2[] nodePos, int numNodes, ArrayList<Integer> start
 
   //println("\nBeginning Search");
   
-  for (int startID : startArr) {
-    visited[startID] = true;
-    distances[startID] = 0;
-    fringe.add(startID);
+  // Getting all of the nodes that are visible from start
+  for (int i = 0; i < numNodes; i++) {
+      Vec2 dir = startPos.minus(nodePos[i]).normalized();
+      float distBetween = nodePos[i].distanceTo(startPos);
+      hitInfo circleListCheck = rayCircleListIntersect(centers, radii, numObstacles, nodePos[i], dir, distBetween);
+      if (!circleListCheck.hit) {
+        visited[i] = true;
+        distances[i] = distBetween;
+        fringe.add(i);
+      }
   }
+
+  int goalID = -1; // A variable to keep track of the closest node to graph
+  ArrayList<Integer> seesGoal = new ArrayList<Integer>(); // list of all nodes that see the goal
 
   //println("Adding node", startID, "(start) to the fringe.");
   //println(" Current Fringe: ", fringe);
-
+  
   while (fringe.size() > 0) {
+    // Find the node with shortest distance in the fringe and remove it
     int currentNode = findMinDistNode(fringe);
     fringe.remove(Integer.valueOf(currentNode));
-    if (currentNode == goalID) {
-      //println("Goal found!");
-      break;
-    }
+    
+    // Check if goal is visible from this node
+    Vec2 dir = goalPos.minus(nodePos[currentNode]).normalized();
+    float distBetween = nodePos[currentNode].distanceTo(goalPos);
+    hitInfo circleListCheck = rayCircleListIntersect(centers, radii, numObstacles, nodePos[currentNode], dir, distBetween);
+    
+    // If it is - it's a potential solution
+    if (!circleListCheck.hit) {
+      float goalDist = distances[currentNode] + distBetween;
+      distances[currentNode] = goalDist;
+      // Check if it's shorter than any other node closest to goal
+      boolean foundSmaller = false;
+      for (int i : seesGoal) {
+        if (goalDist > distances[i]) {
+          foundSmaller = true;
+        }
+      }
+      if (foundSmaller) {
+        seesGoal.add(currentNode);
+      }
+      else {
+        goalID = currentNode;
+        break;
+      }
+    }    
+    
+    // 
     for (int i = 0; i < neighbors[currentNode].size(); i++) {
       int neighborNode = neighbors[currentNode].get(i);
-      float dist = distances[currentNode] + nodePos[i].distanceTo(nodePos[neighborNode]); // add heuristic?
+      float dist = distances[currentNode] + nodePos[i].distanceTo(nodePos[neighborNode]); 
       if (!visited[neighborNode] && dist < distances[neighborNode]) {
         visited[neighborNode] = true;
         distances[neighborNode] = dist;
@@ -163,16 +171,15 @@ ArrayList<Integer> runBFS(Vec2[] nodePos, int numNodes, ArrayList<Integer> start
     }
   }
 
-  for (int i = 0; i < numNodes; i++) {
-    println(distances[i]);
-  }
 
+  // If fringe is empty, we found no valid path
   if (fringe.size() == 0) {
     //println("No Path");
     path.add(0, -1);
     return path;
   }
 
+  // Otherwise, we are reconstructing the path based on the parent[] array and returning the result
   //print("\nReverse path: ");
   int prevNode = parent[goalID];
   path.add(0, goalID);
