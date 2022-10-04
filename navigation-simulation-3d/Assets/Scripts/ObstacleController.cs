@@ -9,6 +9,10 @@ public class ObstacleController : MonoBehaviour
     bool doubleSpeed = false;
     int obstacleSize = 22;
 
+    [HideInInspector]
+    public Vector3 velocity;
+    Vector3 prevPos;
+
     // Start is called before the first frame update
     void Start()
     {
@@ -16,6 +20,7 @@ public class ObstacleController : MonoBehaviour
         transform.forward = new Vector3(cameraForward.x, 0, cameraForward.z);
         obstacleSpeed = FindObjectOfType<GlobalController>().obstacleSpeed;
         groundSize = FindObjectOfType<GlobalController>().groundSize;
+        prevPos = transform.position;
     }
 
     // Update is called once per frame
@@ -36,6 +41,9 @@ public class ObstacleController : MonoBehaviour
 
         // move the obstacle using WASD
         CheckObstacleMovement();
+        Vector3 curPos = transform.position;
+        velocity = curPos - prevPos;
+        prevPos = curPos;
     }
 
     void CheckObstacleMovement()

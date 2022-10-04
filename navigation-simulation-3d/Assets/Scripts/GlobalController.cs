@@ -14,6 +14,8 @@ public class GlobalController : MonoBehaviour
     public int obstacleSize = 20;
     GameObject selectedObstacle;
     GameObject obstacle;
+    [HideInInspector]
+    public List<GameObject> obstacleList;
 
     [Header("Agents Settings")]
     public int numAgentLeaders = 5;
@@ -42,6 +44,7 @@ public class GlobalController : MonoBehaviour
         floorMask = ~LayerMask.GetMask("Floor");
         defaultCamPos = Camera.main.transform.position;
         defaultCamRot = Camera.main.transform.rotation;
+        obstacleList = new List<GameObject>(GameObject.FindGameObjectsWithTag("UserObstacle"));
 
         GameObject temp;
         if (obstacleModel != null)
@@ -59,6 +62,7 @@ public class GlobalController : MonoBehaviour
         temp.name = "UserObstacle";
         temp.GetComponent<SphereCollider>().radius += ((float) agentSize / (2.0f * obstacleSize));
         obstacle = temp;
+        obstacleList.Add(obstacle);
 
         agents = new List<AgentController>();
         for (int i = 0; i < numAgentLeaders; i++)
@@ -105,6 +109,11 @@ public class GlobalController : MonoBehaviour
             agent.id = i;
 
             agents.Add(agent);
+        }
+        
+        foreach (AgentController agent in agents)
+        {
+            obstacleList.Add(agent.gameObject);
         }
 
         setup = true;
@@ -188,7 +197,10 @@ public class GlobalController : MonoBehaviour
                     }
                     else
                     {
-                        selectedObstacle.transform.position = hitInfo.point;
+                        if (selectedObstacle != null)
+                        {
+                            selectedObstacle.transform.position = hitInfo.point;
+                        }
                     }
                 }
             }

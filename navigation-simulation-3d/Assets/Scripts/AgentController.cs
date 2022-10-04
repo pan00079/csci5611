@@ -5,11 +5,13 @@ using UnityEngine;
 public class AgentController : MonoBehaviour
 {
     // Start is called before the first frame update
-    int agentSpeed = 80;
-    int maxForce = 100;
-    float separationCoef = 200f;
-    float alignmentCoef = 2f;
+    int agentSpeed = 120;
+    int maxForce = 600;
+    float separationCoef = 1000f;
+    float alignmentCoef = 1.5f;
     float attractionCoef = 3f;
+    float k_goal = 5f;
+    float k_avoid = 300f;
 
     [HideInInspector]
     public Color color;
@@ -23,6 +25,8 @@ public class AgentController : MonoBehaviour
     public List<int> path;
     [HideInInspector]
     public List<Vector3> nodePos;
+    [HideInInspector]
+    public Vector3 velocity;
 
     GameObject model;
     RuntimeAnimatorController controller;
@@ -31,20 +35,23 @@ public class AgentController : MonoBehaviour
     bool followersMoving = false;
     // bool reachedGoal = false;
     Quaternion prevRot;
-    Vector3 velocity;
     PRM prm;
     Animator animator;
+    float followerSizeVal;
     List<GameObject> agentFollowers;
     List<Vector3> followerVel;
     List<Vector3> followerAcc;
     List<bool> followerStop;
     GameObject followerParent;
+    List<GameObject> obstacleList;
 
     void Start()
     {
         prm = FindObjectOfType<PRM>();
         model = FindObjectOfType<GlobalController>().model;
         controller = FindObjectOfType<GlobalController>().controller;
+        obstacleList = FindObjectOfType<GlobalController>().obstacleList;
+        obstacleList.Remove(gameObject);
         animator = GetComponentInChildren<Animator>();
         agentFollowers = new List<GameObject>();
         followerVel = new List<Vector3>();
@@ -75,6 +82,7 @@ public class AgentController : MonoBehaviour
                 follower.GetComponent<Renderer>().material.color = color;
             }
             //follower.GetComponent<SphereCollider>().enabled = false;
+            followerSizeVal = (transform.localScale.x / 2.0f);
             Vector3 followerSize = (transform.localScale / 2.0f);
             follower.name = "Follower #" + i;
             follower.transform.localScale = followerSize;
@@ -208,14 +216,6 @@ public class AgentController : MonoBehaviour
                 count += 1;
             }
 
-            float distToGoal = Vector3.Distance(followerPos, goalPos);
-            if (distToGoal < 5.0f)
-            {
-                followerStop[i] = true;
-                agentFollowers[i].GetComponent<Animator>().enabled = false;
-                continue;
-            }
-
             float distToLeader = Vector3.Distance(followerPos, leaderPosition);
             if (distToLeader > .05f && distToLeader < 60)
             {
@@ -237,27 +237,62 @@ public class AgentController : MonoBehaviour
             Vector3 towards = (averageVel - followerVel[i]).normalized;
             Vector3 alignmentForce = towards * alignmentCoef;
             acceleration += (attractionForce + alignmentForce);
+            acceleration = Vector3.ClampMagnitude(acceleration, maxForce);
 
-            Vector3 targetVel = (leaderPosition - followerPos).normalized;
+            Vector3 targetVel = (leaderPosition - followerPos);
             float followerSpeed = agentSpeed;
-            targetVel *= followerSpeed;
-            Vector3 goalSpeedForce = targetVel - followerVel[i];
-            goalSpeedForce = Vector3.ClampMagnitude(goalSpeedForce, maxForce);
-            acceleration += goalSpeedForce;
-
-            Vector3 forwardVec = agentFollowers[i].transform.forward;
-            RaycastHit hit;
-            if (Physics.SphereCast(followerPos, 10.0f, forwardVec, out hit, 60.0f))
+            if (targetVel.magnitude > followerSpeed)
             {
-                Vector3 colRad = hit.collider.transform.position;
-                Vector3 reflect = hit.point - colRad;
-                reflect = new Vector3(reflect.x, 0, reflect.z);
-                Vector3 colAvoid = Vector3.Reflect(reflect, forwardVec).normalized * 20.0f;
-                Vector3 colForce = Vector3.ClampMagnitude(colAvoid, maxForce);
-                acceleration += colForce;
-                //Debug.Log(hit.collider);
+                targetVel = targetVel.normalized * followerSpeed;
+            }
+            Vector3 goalSpeedForce = (targetVel - followerVel[i]) * k_goal;
+            acceleration += goalSpeedForce;
+            acceleration = Vector3.ClampMagnitude(acceleration, maxForce);
+
+            followerAcc[i] = acceleration;
+            float distToGoal = Vector3.Distance(followerPos, goalPos);
+            if (distToGoal < 1.0f)
+            {
+                followerStop[i] = true;
+                agentFollowers[i].GetComponent<Animator>().enabled = false;
+                continue;
             }
 
+            foreach (GameObject obstacle in obstacleList)
+            {
+                AgentController isAgent = obstacle.GetComponent<AgentController>();
+                ObstacleController isMovingObstacle = obstacle.GetComponent<ObstacleController>();
+                Vector3 obstaclePos = new Vector3(obstacle.transform.position.x, 1, obstacle.transform.position.z);
+                Vector3 obstacleVel;
+                float obstacleSize;
+                if (isAgent != null)
+                {
+                    obstacleVel = isAgent.velocity;
+                    obstacleSize = obstacle.transform.localScale.x * 1f;
+                }
+                else if (isMovingObstacle != null)
+                {
+                    obstacleVel = isMovingObstacle.velocity;
+                    obstacleSize = obstacle.transform.localScale.x * 0.8f;
+                }
+                else
+                {
+                    obstacleVel = Vector3.zero;
+                    obstacleSize = obstacle.transform.localScale.x * 0.6f;
+                }
+                
+                float ttc = computeTTC(followerPos, followerVel[i], followerSizeVal, obstaclePos, obstacleVel, obstacleSize);
+                if (ttc > 0)
+                {
+                    Vector3 futureID = followerPos + (followerVel[i] * ttc);
+                    Vector3 futureNeighbour = obstaclePos + (obstacleVel * ttc);
+                    Vector3 relativeDir = (futureID - futureNeighbour).normalized;
+                    float urgency = 1f / ttc;
+                    acceleration += relativeDir * urgency * k_avoid;
+                }
+            }
+
+            //acceleration = Vector3.ClampMagnitude(acceleration, maxForce);
             followerAcc[i] = acceleration;
         }
 
@@ -282,7 +317,11 @@ public class AgentController : MonoBehaviour
         }
     }
 
-    /*
+    float computeTTC(Vector3 pos1, Vector3 vel1, float radius1, Vector3 pos2, Vector3 vel2, float radius2)
+    {
+        return rayCircleIntersectTime(pos2, radius1 + radius2, pos1, vel1 - vel2);
+    }
+    
     float rayCircleIntersectTime(Vector3 center, float r, Vector3 l_start, Vector3 l_dir)
     {
         Vector3 toCircle = center - l_start;
@@ -300,7 +339,7 @@ public class AgentController : MonoBehaviour
 
         return -1;
     }
-    */
+    
 
     // Update is called once per frame
     void Update()
@@ -320,7 +359,7 @@ public class AgentController : MonoBehaviour
             moveFollowers();
             foreach (GameObject follower in agentFollowers)
             {
-                follower.GetComponent<Animator>().enabled = false;
+                follower.GetComponent<Animator>().enabled = true;
             }
         }
     }

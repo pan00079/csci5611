@@ -128,8 +128,8 @@ public class PRM : MonoBehaviour
         GameObject goal = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         goal.name = "Goal" + id;
         goal.tag = "Goals";
-        goal.transform.localScale *= (agentSize * 1.4f);
-        goal.GetComponent<SphereCollider>().radius += (agentSize / (agentSize * 1.5f));
+        goal.transform.localScale *= (agentSize * 1.7f);
+        goal.GetComponent<SphereCollider>().radius += (agentSize / (agentSize * 1.2f));
         goal.GetComponent<Renderer>().material.color
             = agents[id].GetComponent<AgentController>().color;
         goal.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
